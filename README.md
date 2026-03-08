@@ -104,9 +104,6 @@ quickly.
 
 # AI Classification Fields
 
-The AI model returns a structured JSON response with the following
-fields.
-
   Field                    Description
   ------------------------ ------------------------------------
   inquiry_quality          Lead quality (low / medium / high)
@@ -118,107 +115,35 @@ fields.
 
 ------------------------------------------------------------------------
 
-# AI Decision Logic
-
-The AI evaluates each inquiry using rules such as:
-
-### High Inquiry Quality
-
-An inquiry is considered **high quality** when it includes multiple
-useful travel details such as:
-
--   destination
--   travel period
--   number of travelers
--   cruise type preference
--   cabin preference
--   request for offers or recommendations
-
-### Medium Inquiry Quality
-
-The inquiry shows interest but lacks enough details for strong
-qualification.
-
-### Low Inquiry Quality
-
-The inquiry contains vague or minimal travel information.
-
-------------------------------------------------------------------------
-
-# Travel Intent Classification
-
-  Intent          Meaning
-  --------------- --------------------------------------
-  research        Customer is exploring options
-  comparing       Customer is evaluating alternatives
-  ready_to_book   Customer likely intends to book soon
-
-------------------------------------------------------------------------
-
-# Next Action Recommendation
-
-The AI recommends one of the following actions.
-
-  Action             Description
-  ------------------ ----------------------------------------------
-  send_offers        Send suitable cruise offers
-  advisor_callback   Advisor should contact the customer directly
-  manual_review      Inquiry requires manual inspection
-
-------------------------------------------------------------------------
-
-# Example Inquiry
-
-    Name: Markus Klein
-    Destination: Caribbean
-    Travel Period: December 2026
-    Travelers: 2
-
-    Message:
-    Looking for a Caribbean cruise in December with balcony cabin.
-    Please send suitable options.
-
-------------------------------------------------------------------------
-
 # Example AI Output
 
 ``` json
 {
-"inquiry_quality": "high",
-"urgency": "medium",
-"cruise_type_classified": "ocean",
-"travel_intent": "ready_to_book",
-"next_action": "send_offers",
-"ai_summary": "Customer seeks Caribbean ocean cruise for two in December 2026 with balcony cabin; requests options."
+  "inquiry_quality": "high",
+  "urgency": "medium",
+  "cruise_type_classified": "ocean",
+  "travel_intent": "ready_to_book",
+  "next_action": "send_offers",
+  "ai_summary": "Customer seeks Caribbean ocean cruise for two in December 2026 with balcony cabin; requests options."
 }
 ```
 
 ------------------------------------------------------------------------
 
-# Email Alert System
+# Email Alert Logic
 
-When the AI detects a strong lead the system sends an email alert.
-
-Condition:
+The system sends an alert when:
 
     inquiry_quality = high
     AND
     travel_intent = ready_to_book
 
-The email alert contains:
-
--   customer information
--   travel details
--   AI classification
--   AI summary
-
-This allows advisors to prioritize high-value inquiries immediately.
+The email includes customer details, travel information, AI
+classification, and the AI-generated summary.
 
 ------------------------------------------------------------------------
 
 # Spreadsheet Output
-
-Each form submission is automatically enriched with AI insights.
 
   Column                   Description
   ------------------------ -------------------------------
@@ -229,19 +154,6 @@ Each form submission is automatically enriched with AI insights.
   Next Action              Recommended action
   AI Summary               Short AI-generated summary
   Processed                Prevents duplicate processing
-
-------------------------------------------------------------------------
-
-# Automation Trigger
-
-The system uses an Apps Script trigger.
-
-    Function: processLatestRow
-    Event Source: From Spreadsheet
-    Event Type: On Form Submit
-
-Each form submission automatically activates the AI classification
-process.
 
 ------------------------------------------------------------------------
 
@@ -257,7 +169,7 @@ process.
 <!-- -->
 ```
     Key: GEMINI_API_KEY
-    Value: My_api_key_here
+    Value: YOUR_API_KEY
 
 6.  Create the Apps Script trigger
 
@@ -290,34 +202,9 @@ process.
 
 ------------------------------------------------------------------------
 
-# Use Cases
-
-Travel agencies can use this system to:
-
--   automatically qualify cruise inquiries
--   prioritize serious customers
--   reduce manual review
--   speed up advisor response time
--   improve sales efficiency
-
-------------------------------------------------------------------------
-
-# Future Improvements
-
-Possible extensions:
-
--   CRM integration
--   automated cruise offer generation
--   AI follow-up emails
--   lead scoring dashboards
--   booking probability prediction
--   multi-language inquiry support
-
-------------------------------------------------------------------------
-
 # Author
 
-Almamy\
+**Almamy**\
 Data & Process Analysis Apprentice
 
 Focus areas:
@@ -331,4 +218,4 @@ Focus areas:
 
 # License
 
-This project is intended for educational and portfolio purposes.
+Educational and portfolio use.
