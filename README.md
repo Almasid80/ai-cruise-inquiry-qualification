@@ -304,7 +304,7 @@ Event Type: On Form Submit
 
 ```text
 Key: GEMINI_API_KEY
-Value: YOUR_API_KEY
+Value: MY_API_KEY
 ```
 
 7. Create the form submission trigger
