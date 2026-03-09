@@ -50,7 +50,7 @@ Classify the type of cruise based on any signal in the inquiry or form fields.
 
 ocean   → open sea destinations (Caribbean, Mediterranean, Norwegian fjords, etc.)
 river   → inland waterways (Danube, Rhine, Nile, Mekong, etc.)
-unknown → no signal available
+unknown → no signal available OR No preference
 
 If the CruiseType form field is filled, use it as the primary signal.
 If empty, infer from the destination. If still unclear, return unknown.
