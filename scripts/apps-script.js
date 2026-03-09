@@ -8,6 +8,17 @@ const CONFIG = {
   GEMINI_MODEL: 'gemini-2.5-flash',
   GEMINI_TEMPERATURE: 0.1,
   ALERT_EMAIL: 'almamysidibe111@gmail.com',
+  STATUS: {
+    PROCESSED: 'PROCESSED',
+    ERROR: 'ERROR'
+  },
+  ALLOWED_VALUES: {
+    cruise_type_classified: ['ocean', 'river', 'unknown'],
+    inquiry_quality: ['high', 'medium', 'low'],
+    urgency: ['high', 'medium', 'low'],
+    travel_intent: ['ready_to_book', 'comparing', 'research'],
+    next_action: ['advisor_callback', 'send_offers', 'manual_review']
+  },
   SHEET_COLUMNS: {
     TIMESTAMP: 1,
     NAME: 2,
@@ -127,8 +138,9 @@ FIELD 6: ai_summary
 Write one professional sentence, maximum 20 words.
 Include: who is traveling, where, when (if known), and their intent.
 Do not evaluate quality or urgency — just summarize the request.
+Do not infer relationships between travelers — say "2 adults" not "couple", "2 adults and 2 children" not "family".
 
-Good: "Couple seeking 7-night Mediterranean ocean cruise in September, balcony cabin preferred, ready for advisor contact."
+Good: "Two adults seeking 7-night Mediterranean ocean cruise in September, balcony cabin preferred, ready for advisor contact."
 Bad:  "High-quality inquiry from a ready-to-book customer." ← do not evaluate, just summarize
 
 ════════════════════════════════════════
@@ -216,7 +228,8 @@ function parseGeminiJson(rawText) {
 // ─────────────────────────────────────────────
 // FUNCTION: validateResult
 // Validates that Gemini returned all required
-// fields before writing anything to the sheet.
+// fields and only allowed enum values before
+// writing anything to the sheet.
 // ─────────────────────────────────────────────
 function validateResult(result) {
   const requiredFields = [
@@ -234,7 +247,33 @@ function validateResult(result) {
     }
   }
 
+  validateEnumValue('cruise_type_classified', result.cruise_type_classified);
+  validateEnumValue('inquiry_quality', result.inquiry_quality);
+  validateEnumValue('urgency', result.urgency);
+  validateEnumValue('travel_intent', result.travel_intent);
+  validateEnumValue('next_action', result.next_action);
+
+  if (typeof result.ai_summary !== 'string' || result.ai_summary.trim() === '') {
+    throw new Error('Invalid value for ai_summary: must be a non-empty string');
+  }
+
   return result;
+}
+
+
+// ─────────────────────────────────────────────
+// FUNCTION: validateEnumValue
+// Validates one field against the configured
+// allowed enum values.
+// ─────────────────────────────────────────────
+function validateEnumValue(fieldName, value) {
+  const allowedValues = CONFIG.ALLOWED_VALUES[fieldName];
+
+  if (!allowedValues.includes(value)) {
+    throw new Error(
+      `Invalid value for ${fieldName}: "${value}". Allowed values: ${allowedValues.join(', ')}`
+    );
+  }
 }
 
 
@@ -304,11 +343,13 @@ function processLatestRow() {
   const [
     timestamp, name, email, cruiseType, destination,
     travelPeriod, travelers, message,
-    , , , , , , // Skip AI result columns (9–14)
+    , , , , , ,
     processed
   ] = row;
 
-  if (processed === 'YES') return;
+  // Skip rows already marked PROCESSED or ERROR.
+  // Without the ERROR check, failed rows would be retried on every trigger fire.
+  if (processed === CONFIG.STATUS.PROCESSED || processed === CONFIG.STATUS.ERROR) return;
 
   const inquiry = {
     name: name || '',
@@ -320,21 +361,31 @@ function processLatestRow() {
     message: message || ''
   };
 
-  const result = analyzeInquiry(inquiry);
+  try {
+    const result = analyzeInquiry(inquiry);
 
-  // Write all AI results back to the sheet in one batch for better performance
-  sheet.getRange(lastRow, cols.INQUIRY_QUALITY, 1, 7).setValues([[
-    result.inquiry_quality || '',
-    result.urgency || '',
-    result.cruise_type_classified || '',
-    result.travel_intent || '',
-    result.next_action || '',
-    result.ai_summary || '',
-    'YES'
-  ]]);
+    // Write all AI results back to the sheet in one batch for better performance
+    sheet.getRange(lastRow, cols.INQUIRY_QUALITY, 1, 7).setValues([[
+      result.inquiry_quality,
+      result.urgency,
+      result.cruise_type_classified,
+      result.travel_intent,
+      result.next_action,
+      result.ai_summary,
+      CONFIG.STATUS.PROCESSED
+    ]]);
 
-  // Send alert only for strong leads that appear ready to book
-  if (result.inquiry_quality === 'high' && result.travel_intent === 'ready_to_book') {
-    sendAlertEmail(inquiry, result);
+    // Send alert only for strong leads that appear ready to book
+    if (result.inquiry_quality === 'high' && result.travel_intent === 'ready_to_book') {
+      sendAlertEmail(inquiry, result);
+    }
+
+  } catch (error) {
+    Logger.log('Processing error: ' + error.message);
+
+    sheet.getRange(lastRow, cols.AI_SUMMARY, 1, 2).setValues([[
+      `ERROR: ${error.message}`,
+      CONFIG.STATUS.ERROR
+    ]]);
   }
 }
