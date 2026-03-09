@@ -1,110 +1,147 @@
 // ─────────────────────────────────────────────
 // CONFIGURATION
+// Central place for API settings, alert email,
+// and spreadsheet column mapping.
 // ─────────────────────────────────────────────
-
-// Retrieve the Gemini API key stored securely in Script Properties
-// (never hard-code API keys directly in the script)
-const API_KEY = PropertiesService
-  .getScriptProperties()
-  .getProperty('GEMINI_API_KEY');
-
-// The email address that receives alerts for high-priority inquiries
-const ALERT_EMAIL = 'almamysidibe111@gmail.com';
+const CONFIG = {
+  GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'),
+  GEMINI_MODEL: 'gemini-2.5-flash',
+  GEMINI_TEMPERATURE: 0.1,
+  ALERT_EMAIL: 'almamysidibe111@gmail.com',
+  SHEET_COLUMNS: {
+    TIMESTAMP: 1,
+    NAME: 2,
+    EMAIL: 3,
+    CRUISE_TYPE: 4,
+    DESTINATION: 5,
+    TRAVEL_PERIOD: 6,
+    TRAVELERS: 7,
+    MESSAGE: 8,
+    INQUIRY_QUALITY: 9,
+    URGENCY: 10,
+    CRUISE_TYPE_CLASSIFIED: 11,
+    TRAVEL_INTENT: 12,
+    NEXT_ACTION: 13,
+    AI_SUMMARY: 14,
+    PROCESSED: 15
+  }
+};
 
 
 // ─────────────────────────────────────────────
-// FUNCTION: analyzeInquiry
-// Sends the inquiry to Gemini AI and returns a
-// structured JSON classification of the lead.
+// FUNCTION: buildPrompt
+// Builds the Gemini classification prompt from
+// a structured inquiry object.
 // ─────────────────────────────────────────────
-function analyzeInquiry(inquiry) {
+function buildPrompt(inquiry) {
+  return `
+You are a cruise inquiry qualification engine.
+Your only output is a single raw JSON object. No markdown, no code fences, no explanations.
 
-  // Build the prompt sent to Gemini.
-  // It instructs the model to classify the inquiry across 6 fields
-  // and defines exactly what values are allowed for each field.
-  const prompt = `
-You are an AI assistant for cruise inquiry qualification.
+STEP 1 — RESOLVE FIELDS IN THIS EXACT ORDER:
+cruise_type_classified → inquiry_quality → urgency → travel_intent → next_action → ai_summary
 
-Analyze the following cruise inquiry and return ONLY valid JSON.
-Do not add markdown.
-Do not wrap the JSON in code fences.
-Do not add explanations before or after the JSON.
-Return exactly one JSON object.
+Each field depends on the ones before it. Do not skip ahead.
 
-Use exactly these fields:
-- inquiry_quality
-- urgency
-- cruise_type_classified
-- travel_intent
-- next_action
-- ai_summary
+════════════════════════════════════════
+FIELD 1: cruise_type_classified
+════════════════════════════════════════
+Classify the type of cruise based on any signal in the inquiry or form fields.
 
-Allowed values:
-- inquiry_quality: low, medium, high
-- urgency: low, medium, high
-- cruise_type_classified: ocean, river, unknown
-- travel_intent: research, comparing, ready_to_book
-- next_action: send_offers, advisor_callback, manual_review
+ocean   → open sea destinations (Caribbean, Mediterranean, Norwegian fjords, etc.)
+river   → inland waterways (Danube, Rhine, Nile, Mekong, etc.)
+unknown → no signal available
 
-Classification rules:
+If the CruiseType form field is filled, use it as the primary signal.
+If empty, infer from the destination. If still unclear, return unknown.
 
-inquiry_quality = high when:
-- the inquiry includes multiple useful details
-- and shows real booking interest
-- and includes at least some of the following: destination, travel period, traveler count, cruise preference, cabin preference, flights included
+════════════════════════════════════════
+FIELD 2: inquiry_quality
+════════════════════════════════════════
+Measure how actionable this inquiry is for a travel advisor.
 
-inquiry_quality = medium when:
-- there is some real interest
-- but not enough detail for strong qualification
+high   → includes 3 or more of: destination, travel period, traveler count,
+         cruise type, cabin preference, flights included — AND shows real booking interest
+         Example: "We want a 7-night Mediterranean cruise for 2 in September, balcony cabin if possible."
 
-inquiry_quality = low when:
-- the inquiry is vague
-- or contains almost no useful travel information
+medium → shows genuine interest but missing key details
+         Example: "Looking for a Caribbean cruise sometime next year for my family."
 
-urgency = high when:
-- travel is soon
-- or the customer explicitly asks for a callback quickly
-- or the message suggests immediate booking intent
+low    → vague, generic, or almost no useful travel information
+         Example: "Do you have any cruise deals?" or a nearly empty form
 
-urgency = medium when:
-- there is clear interest but no strong time pressure
+Rule: If destination + travel period + traveler count are all present, lean toward high
+unless the message itself is clearly vague or disinterested.
 
-urgency = low when:
-- the inquiry is exploratory and not time-sensitive
+════════════════════════════════════════
+FIELD 3: urgency
+════════════════════════════════════════
+Measure how time-sensitive this inquiry is.
 
-travel_intent = ready_to_book when:
-- the inquiry includes clear travel criteria
-- and the customer wants offers, recommendations, or contact
+high   → travel is within 6 weeks, OR customer explicitly requests quick callback,
+         OR language signals they are ready to decide now
+         Example: "We want to leave in 3 weeks." / "Please call me back today."
 
-travel_intent = comparing when:
-- the customer has some preferences
-- but is still exploring options
+medium → clear interest but no strong time pressure
+         Example: "We're thinking about a cruise this summer."
 
-travel_intent = research when:
-- the inquiry is broad, vague, or only asks generally about offers
+low    → exploratory, no timeline, or clearly long-range planning
+         Example: "Just browsing for ideas for maybe next year."
 
-next_action = advisor_callback when:
-- inquiry_quality is high
-- and travel_intent is ready_to_book
-- and the request is detailed enough for direct advisor follow-up
+════════════════════════════════════════
+FIELD 4: travel_intent
+════════════════════════════════════════
+Measure where the customer is in their decision journey.
 
-next_action = send_offers when:
-- the inquiry is useful
-- but can first be handled with suitable offers
+ready_to_book → clear criteria provided AND customer asks for offers, options, or contact
+                Example: "We want to book a Nile river cruise for 4 in October. Please send us options."
 
-next_action = manual_review when:
-- the inquiry is unclear, mixed, or unusual
+comparing     → has preferences but still evaluating, not yet asking to commit
+                Example: "I'm looking at a few options for a Baltic cruise next summer for 2 people."
 
-Important decision rules:
-- If the inquiry includes destination, travel period, traveler count, and a clear request for offers or contact, do not classify travel_intent as research.
-- In such cases, classify travel_intent as ready_to_book or comparing.
-- If the inquiry includes destination, travel period, traveler count, and at least one preference such as cruise type, cabin type, or flights included, classify inquiry_quality as high unless the message is clearly vague.
-- If the inquiry includes enough detail for an advisor to prepare suitable options, do not classify next_action as manual_review.
-- If the customer explicitly asks for suitable offers or options and provides multiple travel details, prefer ready_to_book over research.
+research      → broad or vague, no real criteria, just exploring
+                Example: "Hi, what cruise deals do you have?"
 
-Write ai_summary as one short professional sentence with a maximum of 20 words.
+Override rules (apply these before finalizing):
+- If destination + travel period + traveler count are all present AND customer asks for offers or contact → use ready_to_book or comparing, never research
+- If customer explicitly requests suitable offers or options AND provides 3+ travel details → prefer ready_to_book over comparing
 
-Inquiry:
+════════════════════════════════════════
+FIELD 5: next_action
+════════════════════════════════════════
+Decide the best immediate follow-up action.
+
+advisor_callback → when inquiry_quality = high AND travel_intent = ready_to_book
+                   OR when urgency = high AND inquiry_quality = medium
+                   Example: Detailed inquiry, customer wants to be contacted
+
+send_offers      → when inquiry is useful but not yet ready for direct advisor contact
+                   Example: Good detail level, customer wants to compare options first
+
+manual_review    → ONLY when the inquiry is contradictory, suspicious, or impossible to classify
+                   Do not use manual_review simply because detail is low — use send_offers instead
+
+════════════════════════════════════════
+FIELD 6: ai_summary
+════════════════════════════════════════
+Write one professional sentence, maximum 20 words.
+Include: who is traveling, where, when (if known), and their intent.
+Do not evaluate quality or urgency — just summarize the request.
+
+Good: "Couple seeking 7-night Mediterranean ocean cruise in September, balcony cabin preferred, ready for advisor contact."
+Bad:  "High-quality inquiry from a ready-to-book customer." ← do not evaluate, just summarize
+
+════════════════════════════════════════
+EDGE CASE RULES
+════════════════════════════════════════
+- Empty or blank form fields: treat as not provided. Do not infer or assume.
+- Vague values like "me and my family" or "sometime soon": treat as partial, not definitive.
+- If genuinely uncertain between two values, choose the more conservative one (e.g. medium over high).
+- Never leave a field empty. Every field must have a value from its allowed list.
+
+════════════════════════════════════════
+INQUIRY DATA
+════════════════════════════════════════
 Name: ${inquiry.name}
 Email: ${inquiry.email}
 Cruise Type Preference: ${inquiry.cruiseType}
@@ -112,109 +149,167 @@ Destination: ${inquiry.destination}
 Travel Period: ${inquiry.travelPeriod}
 Travelers: ${inquiry.travelers}
 Message: ${inquiry.message}
+
+Return only this JSON structure, nothing else:
+{
+  "cruise_type_classified": "",
+  "inquiry_quality": "",
+  "urgency": "",
+  "travel_intent": "",
+  "next_action": "",
+  "ai_summary": ""
+}
 `;
+}
 
-  // Gemini API endpoint — model and API key are appended as a query parameter
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`;
 
-  // Request body: wrap the prompt in the required Gemini content structure.
-  // Low temperature (0.1) keeps the output consistent and less random.
+// ─────────────────────────────────────────────
+// FUNCTION: callGeminiApi
+// Sends a prompt to the Gemini API and returns
+// the raw text response.
+// ─────────────────────────────────────────────
+function callGeminiApi(prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+
   const payload = {
-    contents: [
-      {
-        parts: [{ text: prompt }]
-      }
-    ],
-    generationConfig: {
-      temperature: 0.1
-    }
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: CONFIG.GEMINI_TEMPERATURE }
   };
 
-  // HTTP POST options for UrlFetchApp.
-  // muteHttpExceptions: true prevents the script from crashing on API errors —
-  // we handle errors manually below instead.
   const options = {
-    method: "post",
-    contentType: "application/json",
+    method: 'post',
+    contentType: 'application/json',
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   };
 
-  // Call the Gemini API and get the raw response text
   const response = UrlFetchApp.fetch(url, options);
   const responseText = response.getContentText();
-  Logger.log(responseText);
+  Logger.log('Gemini raw response: ' + responseText);
 
-  // Parse the outer API response envelope
   const json = JSON.parse(responseText);
 
-  // Validate that the response has the expected nested structure.
-  // If Gemini returned an error or unexpected format, throw a descriptive error.
-  if (!json.candidates || !json.candidates[0] || !json.candidates[0].content || !json.candidates[0].content.parts) {
-    throw new Error('Unexpected Gemini response: ' + responseText);
+  if (!json.candidates?.[0]?.content?.parts) {
+    throw new Error('Unexpected Gemini response structure: ' + responseText);
   }
 
-  // Extract the actual text content from the nested Gemini response structure
-  const text = json.candidates[0].content.parts[0].text;
+  return json.candidates[0].content.parts[0].text;
+}
 
-  // Strip any accidental markdown code fences Gemini may have added,
-  // then trim whitespace — we need clean JSON to parse
-  const cleaned = text
+
+// ─────────────────────────────────────────────
+// FUNCTION: parseGeminiJson
+// Strips accidental markdown fences from the
+// Gemini response and parses it as JSON.
+// ─────────────────────────────────────────────
+function parseGeminiJson(rawText) {
+  const cleaned = rawText
     .replace(/```json/g, '')
     .replace(/```/g, '')
     .trim();
 
-  Logger.log(cleaned);
-
-  // Parse and return the final classification object
+  Logger.log('Cleaned JSON: ' + cleaned);
   return JSON.parse(cleaned);
 }
 
 
 // ─────────────────────────────────────────────
+// FUNCTION: validateResult
+// Validates that Gemini returned all required
+// fields before writing anything to the sheet.
+// ─────────────────────────────────────────────
+function validateResult(result) {
+  const requiredFields = [
+    'cruise_type_classified',
+    'inquiry_quality',
+    'urgency',
+    'travel_intent',
+    'next_action',
+    'ai_summary'
+  ];
+
+  for (const field of requiredFields) {
+    if (!(field in result)) {
+      throw new Error(`Missing field in Gemini response: ${field}`);
+    }
+  }
+
+  return result;
+}
+
+
+// ─────────────────────────────────────────────
+// FUNCTION: analyzeInquiry
+// Orchestrates the full AI classification flow:
+// builds prompt → calls API → parses result →
+// validates result.
+// ─────────────────────────────────────────────
+function analyzeInquiry(inquiry) {
+  const prompt = buildPrompt(inquiry);
+  const rawText = callGeminiApi(prompt);
+  const parsed = parseGeminiJson(rawText);
+  return validateResult(parsed);
+}
+
+
+// ─────────────────────────────────────────────
+// FUNCTION: sendAlertEmail
+// Sends a formatted alert email for high-priority
+// inquiries that are ready to book.
+// ─────────────────────────────────────────────
+function sendAlertEmail(inquiry, result) {
+  const subject = 'High-Priority Cruise Inquiry Detected';
+
+  const body = [
+    'A high-priority cruise inquiry was detected.',
+    '',
+    `Name:                   ${inquiry.name}`,
+    `Email:                  ${inquiry.email}`,
+    `Cruise Type Preference: ${inquiry.cruiseType}`,
+    `Destination:            ${inquiry.destination}`,
+    `Travel Period:          ${inquiry.travelPeriod}`,
+    `Travelers:              ${inquiry.travelers}`,
+    `Message:                ${inquiry.message}`,
+    '',
+    `Inquiry Quality:        ${result.inquiry_quality}`,
+    `Urgency:                ${result.urgency}`,
+    `Cruise Type Classified: ${result.cruise_type_classified}`,
+    `Travel Intent:          ${result.travel_intent}`,
+    `Next Action:            ${result.next_action}`,
+    `AI Summary:             ${result.ai_summary}`
+  ].join('\n');
+
+  GmailApp.sendEmail(CONFIG.ALERT_EMAIL, subject, body);
+}
+
+
+// ─────────────────────────────────────────────
 // FUNCTION: processLatestRow
-// Reads the most recently submitted inquiry from
-// the sheet, runs AI analysis, writes results
-// back, and sends an alert email if high-priority.
+// Reads the most recent inquiry from the sheet,
+// runs AI analysis, writes results back in a
+// single batch, and sends an alert email if
+// high-priority.
 //
-// This function should be triggered automatically
-// whenever a new form submission is added (e.g.
-// via an Apps Script onFormSubmit trigger).
+// Trigger: onFormSubmit (Apps Script trigger)
 // ─────────────────────────────────────────────
 function processLatestRow() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const lastRow = sheet.getLastRow();
+  const cols = CONFIG.SHEET_COLUMNS;
 
-  // Exit early if the sheet has no data rows (row 1 is the header)
   if (lastRow < 2) return;
 
-  // Read all 15 columns of the last row in one call (more efficient than individual reads)
-  const row = sheet.getRange(lastRow, 1, 1, 15).getValues()[0];
+  const row = sheet.getRange(lastRow, 1, 1, cols.PROCESSED).getValues()[0];
 
-  // Destructure each column into a named variable.
-  // Columns 1–8 come from the form; columns 9–15 are filled in by this script.
   const [
-    timestamp,
-    name,
-    email,
-    cruiseType,
-    destination,
-    travelPeriod,
-    travelers,
-    message,
-    inquiryQuality,    // written by script (col 9)
-    urgency,           // written by script (col 10)
-    cruiseTypeClassified, // written by script (col 11)
-    travelIntent,      // written by script (col 12)
-    nextAction,        // written by script (col 13)
-    aiSummary,         // written by script (col 14)
-    processed          // "YES" flag to prevent duplicate processing (col 15)
+    timestamp, name, email, cruiseType, destination,
+    travelPeriod, travelers, message,
+    , , , , , , // Skip AI result columns (9–14)
+    processed
   ] = row;
 
-  // Skip this row if it has already been processed — prevents re-running on re-triggers
   if (processed === 'YES') return;
 
-  // Build the inquiry object to pass into the AI analysis function
   const inquiry = {
     name: name || '',
     email: email || '',
@@ -225,44 +320,21 @@ function processLatestRow() {
     message: message || ''
   };
 
-  // Send the inquiry to Gemini and get back the structured classification
   const result = analyzeInquiry(inquiry);
 
-  // Write each AI result back into its corresponding column (cols 9–14)
-  sheet.getRange(lastRow, 9).setValue(result.inquiry_quality || '');
-  sheet.getRange(lastRow, 10).setValue(result.urgency || '');
-  sheet.getRange(lastRow, 11).setValue(result.cruise_type_classified || '');
-  sheet.getRange(lastRow, 12).setValue(result.travel_intent || '');
-  sheet.getRange(lastRow, 13).setValue(result.next_action || '');
-  sheet.getRange(lastRow, 14).setValue(result.ai_summary || '');
+  // Write all AI results back to the sheet in one batch for better performance
+  sheet.getRange(lastRow, cols.INQUIRY_QUALITY, 1, 7).setValues([[
+    result.inquiry_quality || '',
+    result.urgency || '',
+    result.cruise_type_classified || '',
+    result.travel_intent || '',
+    result.next_action || '',
+    result.ai_summary || '',
+    'YES'
+  ]]);
 
-  // Mark the row as processed so it won't be analysed again (col 15)
-  sheet.getRange(lastRow, 15).setValue("YES");
-
-  // ── ALERT EMAIL ──────────────────────────────
-  // Only send an email for the hottest leads:
-  // quality = high AND intent = ready_to_book.
-  // This keeps the inbox focused on actionable inquiries.
+  // Send alert only for strong leads that appear ready to book
   if (result.inquiry_quality === 'high' && result.travel_intent === 'ready_to_book') {
-    GmailApp.sendEmail(
-      ALERT_EMAIL,
-      'High-Priority Cruise Inquiry Detected',
-      `A high-priority cruise inquiry was detected.
-
-Name: ${name}
-Email: ${email}
-Cruise Type Preference: ${cruiseType}
-Destination: ${destination}
-Travel Period: ${travelPeriod}
-Travelers: ${travelers}
-Message: ${message}
-
-Inquiry Quality: ${result.inquiry_quality}
-Urgency: ${result.urgency}
-Cruise Type Classified: ${result.cruise_type_classified}
-Travel Intent: ${result.travel_intent}
-Next Action: ${result.next_action}
-AI Summary: ${result.ai_summary}`
-    );
+    sendAlertEmail(inquiry, result);
   }
 }
