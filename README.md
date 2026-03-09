@@ -47,35 +47,34 @@ Without automation, valuable leads can be buried among vague or exploratory requ
 
 ## 2. Workflow
 
-The automation follows this sequence:
-
-```text
-Customer
-↓
-Google Form
-↓
-Google Sheets Database
-↓
-Apps Script Trigger
-↓
-Gemini AI API
-↓
-Lead Classification
-↓
-Spreadsheet Update
-↓
-Email Alert
-```
+Customer  
+↓  
+Google Form  
+↓  
+Google Sheets Database  
+↓  
+Apps Script Trigger  
+↓  
+Gemini AI API  
+↓  
+JSON Parsing  
+↓  
+Schema Validation  
+↓  
+Spreadsheet Update  
+↓  
+Email Alert  
 
 Detailed process:
 
-1. A customer submits the cruise inquiry form
-2. Google Forms writes the response into Google Sheets
-3. A Google Apps Script trigger runs automatically on form submission
-4. The newest inquiry is sent to Gemini AI
-5. Gemini returns structured JSON classification
-6. Apps Script writes the result into the spreadsheet
-7. If the inquiry is strong enough, an email alert is sent automatically
+1. A customer submits the cruise inquiry form  
+2. Google Forms writes the response into Google Sheets  
+3. A Google Apps Script trigger runs automatically on form submission  
+4. The newest inquiry is sent to Gemini AI  
+5. Gemini returns structured JSON classification  
+6. Apps Script parses and validates the AI response  
+7. Apps Script writes the result into the spreadsheet  
+8. If the inquiry is strong enough, an email alert is sent automatically  
 
 ---
 
@@ -97,19 +96,17 @@ The system receives inquiry data through a Google Form.
 
 ### Example input
 
-```text
-Name: Sofia Wagner
-Email: sofia@test.com
-Cruise Type Preference: Ocean
-Destination / Route: Mediterranean
-Travel Period: July 2026
-Number of Travelers: 2
+Name: Sofia Wagner  
+Email: sofia@test.com  
+Cruise Type Preference: Ocean  
+Destination / Route: Mediterranean  
+Travel Period: July 2026  
+Number of Travelers: 2  
 Message: We are looking for a Mediterranean cruise in July for 2 adults with balcony cabin and flights included. Please send suitable options.
-```
+
+---
 
 ### Sheet structure
-
-The spreadsheet stores raw input and AI output together.
 
 | Column | Field |
 |---|---|
@@ -127,7 +124,7 @@ The spreadsheet stores raw input and AI output together.
 | L | Travel Intent |
 | M | Next Action |
 | N | AI Summary |
-| O | Processed |
+| O | Status |
 
 ---
 
@@ -146,54 +143,11 @@ Gemini AI receives the inquiry and returns structured classification in JSON.
 | next_action | send_offers, advisor_callback, manual_review |
 | ai_summary | Short professional summary |
 
-### Classification logic
-
-The prompt instructs the model to evaluate the inquiry using business rules.
-
-#### Inquiry Quality
-
-- **high** → detailed inquiry with real booking interest
-- **medium** → some interest, but not enough detail for strong qualification
-- **low** → vague inquiry with little useful travel information
-
-#### Urgency
-
-- **high** → near-term travel or strong immediate intent
-- **medium** → clear interest without strong time pressure
-- **low** → exploratory, not time-sensitive
-
-#### Travel Intent
-
-- **research** → broad, vague, exploratory
-- **comparing** → customer has some preferences and is evaluating options
-- **ready_to_book** → customer provides clear criteria and requests offers or contact
-
-#### Next Action
-
-- **send_offers** → inquiry is useful and can first be handled with suitable options
-- **advisor_callback** → inquiry is high quality and likely ready to book
-- **manual_review** → unclear, mixed, or unusual case
-
-### Example AI output
-
-```json
-{
-  "inquiry_quality": "high",
-  "urgency": "medium",
-  "cruise_type_classified": "ocean",
-  "travel_intent": "ready_to_book",
-  "next_action": "send_offers",
-  "ai_summary": "Customer seeks Mediterranean ocean cruise for two in July 2026 with balcony cabin and flights included."
-}
-```
-
 ---
 
 ## 5. Output
 
-The system produces two business outputs.
-
-### A. Spreadsheet enrichment
+### Spreadsheet enrichment
 
 After the AI runs, the sheet is automatically updated with:
 
@@ -203,69 +157,62 @@ After the AI runs, the sheet is automatically updated with:
 - travel intent
 - next action
 - AI summary
-- processed flag
+- processing status
 
-This turns raw form data into structured operational information.
-
-### B. Email alert
+### Email alert
 
 If the AI detects a high-value inquiry, the system sends an automatic email.
 
-### Alert condition
+Alert condition:
 
-```text
-inquiry_quality = high
-AND
-travel_intent = ready_to_book
-```
-
-### Alert content
-
-The email includes:
-
-- customer name
-- email
-- cruise preference
-- destination
-- travel period
-- travelers
-- original message
-- AI classification
-- AI summary
-
-This allows an advisor to react immediately.
+inquiry_quality = high  
+AND  
+travel_intent = ready_to_book  
 
 ---
 
-## 6. Business Value
+## 6. Processing Status
 
-This project demonstrates how AI can improve travel inquiry handling in a practical way.
+| Status | Meaning |
+|---|---|
+| PROCESSED | Inquiry successfully analyzed |
+| ERROR | AI processing failed or invalid response |
 
-### Operational value
+---
 
-- reduces manual review effort
-- prioritizes stronger leads
-- creates more consistent qualification logic
-- improves response speed for valuable inquiries
-- structures inquiry handling for advisors
+## 7. Reliability Controls
 
-### Commercial value
+The script includes multiple safeguards.
 
-- stronger leads can be contacted faster
-- weak inquiries no longer consume the same amount of time
-- customer response quality improves
-- qualification becomes repeatable and scalable
+### AI schema validation
 
-### Why this matters
+The Gemini response is validated to ensure:
 
-This is not just an AI demo. It is a small business workflow automation system.
+- required fields exist  
+- values belong to allowed enums  
+- ai_summary is a valid string  
 
-It shows how AI can be placed inside a real process:
+### Error handling
 
-- data enters through a form
-- automation routes the data
-- AI interprets the inquiry
-- the system produces business action
+If processing fails:
+
+- the error message is written into the sheet  
+- the row is marked `ERROR`  
+- the failure is logged  
+
+---
+
+## 8. Engineering Improvements
+
+Compared with the initial prototype, this version includes:
+
+- centralized configuration object  
+- modular function architecture  
+- Gemini response validation  
+- enum enforcement for AI outputs  
+- batch spreadsheet writes for performance  
+- explicit processing statuses  
+- improved logging and error handling  
 
 ---
 
@@ -283,50 +230,35 @@ It shows how AI can be placed inside a real process:
 
 ## Trigger Configuration
 
-The Apps Script trigger is configured as follows:
-
-```text
-Function: processLatestRow
-Event Source: From Spreadsheet
-Event Type: On Form Submit
-```
+Function: processLatestRow  
+Event Source: From Spreadsheet  
+Event Type: On Form Submit  
 
 ---
 
 ## Installation
 
-1. Create the Google Form
-2. Link it to a Google Sheet
-3. Add the spreadsheet columns for AI output
-4. Open **Extensions → Apps Script**
-5. Paste the Apps Script automation
+1. Create the Google Form  
+2. Link it to a Google Sheet  
+3. Add the spreadsheet columns for AI output  
+4. Open **Extensions → Apps Script**  
+5. Paste the Apps Script automation  
 6. Add the Gemini API key in **Script Properties**
 
-```text
-Key: GEMINI_API_KEY
-Value: MY_API_KEY
-```
+Key: GEMINI_API_KEY  
+Value: YOUR_API_KEY  
 
 7. Create the form submission trigger
 
-```text
-Function: processLatestRow
-Event Source: From Spreadsheet
-Event Type: On Form Submit
-```
+Function: processLatestRow  
+Event Source: From Spreadsheet  
+Event Type: On Form Submit  
 
 ---
 
-## Current Version Scope
+## Known Limitations
 
-Version 1 includes:
-
-- form intake
-- spreadsheet database
-- AI inquiry classification
-- automatic trigger
-- processed-row protection
-- email alert for strong inquiries
+The current version processes only the **latest submitted row** rather than scanning all unprocessed rows.
 
 ---
 
@@ -334,12 +266,12 @@ Version 1 includes:
 
 Possible next versions:
 
-- CRM integration
-- advisor dashboard
-- automatic follow-up email drafting
-- booking probability scoring
-- multilingual support
-- full processing of all unprocessed rows instead of latest row only
+- CRM integration  
+- advisor dashboard  
+- automatic follow-up email drafting  
+- booking probability scoring  
+- multilingual support  
+- full processing of all unprocessed rows instead of latest row only  
 
 ---
 
@@ -350,10 +282,10 @@ Data & Process Analysis Apprentice
 
 Focus areas:
 
-- AI automation
-- data-driven workflows
-- process optimization
-- scalable business systems
+- AI automation  
+- data-driven workflows  
+- process optimization  
+- scalable business systems  
 
 ---
 
